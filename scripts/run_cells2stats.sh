@@ -71,6 +71,16 @@ export SINGULARITY_BINDPATH="${SINGULARITY_BINDPATH:-},/lscratch/${SLURM_JOB_ID}
 # cells2stats uses $TMPDIR; inside the container /tmp == /lscratch/$JOBID on host
 export SINGULARITYENV_TMPDIR=/tmp
 
+# Prevent nested BLAS threading inside per-process workers.
+# cells2stats spawns $SLURM_CPUS_PER_TASK Python workers; each one's numpy
+# would otherwise try to spawn $SLURM_CPUS_PER_TASK BLAS threads, blowing
+# past the per-user RLIMIT_NPROC=1024 process limit.
+export SINGULARITYENV_OPENBLAS_NUM_THREADS=1
+export SINGULARITYENV_MKL_NUM_THREADS=1
+export SINGULARITYENV_OMP_NUM_THREADS=1
+export SINGULARITYENV_NUMEXPR_NUM_THREADS=1
+export SINGULARITYENV_BLIS_NUM_THREADS=1
+
 # ---- Run -------------------------------------------------------------------
 echo "============================================================"
 echo "Job ID:      $SLURM_JOB_ID"
