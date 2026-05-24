@@ -76,7 +76,7 @@ CONTAINER="/data/$USER/containers/cells2stats/cells2stats-full.sif"
 
 # ---- Environment -----------------------------------------------------------
 # Biowulf policy: load `singularity` unversioned so users get the
-# staff-maintained default. Do NOT pin a version here — the Biowulf docs
+# staff-maintained default. Do NOT pin a version here â€” the Biowulf docs
 # explicitly disallow it (pinned versions are retired without notice and
 # break jobs at submission time).
 module load singularity
@@ -101,6 +101,17 @@ export SINGULARITYENV_MKL_NUM_THREADS=1
 export SINGULARITYENV_OMP_NUM_THREADS=1
 export SINGULARITYENV_NUMEXPR_NUM_THREADS=1
 export SINGULARITYENV_BLIS_NUM_THREADS=1
+
+# Constrain JVM thread pools and heap for CellProfiler's per-worker JVMs.
+# CellProfiler spawns one JVM per worker via Bioformats. Each JVM auto-sizes
+# its GC thread pool from the host CPU count (e.g. 192 on Biowulf AMD EPYC
+# 9454 nodes), not from $SLURM_CPUS_PER_TASK. At high --num-threads, the
+# concurrent JVM startups blow past the per-user RLIMIT_NPROC=1024 ceiling
+# and fail with: "Cannot create worker GC thread. Out of system resources."
+# Capping heap (-Xmx) also keeps Committed_AS predictable on busy nodes.
+# If you hit "java.lang.OutOfMemoryError: Java heap space" (distinct error),
+# bump -Xmx to 8g.
+export SINGULARITYENV_JAVA_TOOL_OPTIONS="-Xmx4g -Xms512m -XX:ParallelGCThreads=2 -XX:ConcGCThreads=1 -XX:CICompilerCount=2 -Xss512k"
 
 # ---- Banner ----------------------------------------------------------------
 # Memory may be reported as MEM_PER_NODE or MEM_PER_CPU depending on how

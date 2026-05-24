@@ -13,16 +13,16 @@ Singularity-based workflow for running [cells2stats](https://docs.elembio.io/doc
 
 ```
 cells2stats/
-+-- defs/
-¦   +-- cells2stats-full.def    # Singularity definition file
-+-- scripts/
-¦   +-- run_cells2stats.sh      # sbatch wrapper (submit from here)
-¦   +-- logs/                   # SLURM stdout/stderr — created on first use
-+-- runs/                       # input AVITI run directories (or symlinks)
-¦   +-- <RUN_NAME>/
-+-- outputs/                    # cells2stats output directories
-¦   +-- <RUN_NAME>/
-+-- README.md                   # this file
+â”œâ”€â”€ defs/
+â”‚   â””â”€â”€ cells2stats-full.def    # Singularity definition file
+â”œâ”€â”€ scripts/
+â”‚   â”œâ”€â”€ run_cells2stats.sh      # sbatch wrapper (submit from here)
+â”‚   â””â”€â”€ logs/                   # SLURM stdout/stderr â€” created on first use
+â”œâ”€â”€ runs/                       # input AVITI run directories (or symlinks)
+â”‚   â””â”€â”€ <RUN_NAME>/
+â”œâ”€â”€ outputs/                    # cells2stats output directories
+â”‚   â””â”€â”€ <RUN_NAME>/
+â””â”€â”€ README.md                   # this file
 ```
 
 The built SIF lives **outside** this repo at `/data/$USER/containers/cells2stats/cells2stats-full.sif` (the wrapper hardcodes this path). Keep it there; the repo `containers/` directory, if it exists, is orphaned.
@@ -38,7 +38,7 @@ The prebuilt image lives at `/data/$USER/containers/cells2stats/cells2stats-full
 ### Prerequisites
 
 - A Biowulf account with `/data/$USER` quota of at least ~10 GB free (SIF + build cache).
-- An interactive node. **Do not build on a login node** — pulling and assembling the image is CPU- and I/O-heavy.
+- An interactive node. **Do not build on a login node** â€” pulling and assembling the image is CPU- and I/O-heavy.
 
 ### Steps
 
@@ -69,7 +69,7 @@ The prebuilt image lives at `/data/$USER/containers/cells2stats/cells2stats-full
    singularity build cells2stats-full.sif /data/$USER/cells2stats/defs/cells2stats-full.def
    ```
 
-   The build pulls the Docker image, installs `bowtie` via apt, and runs the `%test` block. If `%test` fails (missing binary, broken Python import) the build aborts — fix the def file and retry.
+   The build pulls the Docker image, installs `bowtie` via apt, and runs the `%test` block. If `%test` fails (missing binary, broken Python import) the build aborts â€” fix the def file and retry.
 
 5. Verify:
 
@@ -81,7 +81,7 @@ The prebuilt image lives at `/data/$USER/containers/cells2stats/cells2stats-full
 
 ### Notes on the def file
 
-- The `%post` block is intentionally minimal — only `bowtie` is added on top of the upstream image. Keep additions there to preserve reproducibility.
+- The `%post` block is intentionally minimal â€” only `bowtie` is added on top of the upstream image. Keep additions there to preserve reproducibility.
 - The `%test` block runs at build time and is the contract for what the container guarantees. Add any new dependency check there.
 - Two Python interpreters coexist: system `/usr/bin/python3` (3.10, has the viz/zarr stack) and `/opt/cellprofiler/bin/python3` (3.8, has CellProfiler). Don't mix them.
 
@@ -91,7 +91,7 @@ The prebuilt image lives at `/data/$USER/containers/cells2stats/cells2stats-full
 
 ### Inputs
 
-cells2stats expects an **AVITI run directory** — the output folder from a Cytoprofiling run on the instrument, containing `RunManifest.json`/`RunManifest.csv`, `RunParameters.json`, and the per-cycle image data. In this repo, place them in `runs/` (or symlink from there to wherever the data actually lives):
+cells2stats expects an **AVITI run directory** â€” the output folder from a Cytoprofiling run on the instrument, containing `RunManifest.json`/`RunManifest.csv`, `RunParameters.json`, and the per-cycle image data. In this repo, place them in `runs/` (or symlink from there to wherever the data actually lives):
 
 ```
 /data/$USER/cells2stats/runs/<RUN_NAME>/
@@ -130,13 +130,13 @@ sbatch run_cells2stats.sh \
     /data/$USER/cells2stats/outputs/<RUN_NAME> \
     --visualization --tca-manifest /data/$USER/manifests/tca.csv
 
-# Visualization only — skips CellProfiler and stats regeneration, much faster
+# Visualization only â€” skips CellProfiler and stats regeneration, much faster
 sbatch run_cells2stats.sh \
     /data/$USER/cells2stats/runs/<RUN_NAME> \
     /data/$USER/cells2stats/outputs/<RUN_NAME> \
     --visualization-only
 
-# Stats only — skip CellProfiler (no morphology features)
+# Stats only â€” skip CellProfiler (no morphology features)
 sbatch run_cells2stats.sh \
     /data/$USER/cells2stats/runs/<RUN_NAME> \
     /data/$USER/cells2stats/outputs/<RUN_NAME> \
@@ -147,11 +147,12 @@ The wrapper resolves both paths with `readlink -f`, validates `RUN_DIR` exists, 
 
 ### What the wrapper does for you
 
-- Loads the `singularity` module (unversioned, per Biowulf policy — staff retire versioned modules without notice).
+- Loads the `singularity` module (unversioned, per Biowulf policy â€” staff retire versioned modules without notice).
 - Sources `/usr/local/current/singularity/app_conf/sing_binds` so GPFS-backed paths (`/data`, `/vf`, `/fdb`, etc.) are visible inside the container via Biowulf staff-maintained bindpaths.
-- Adds `/lscratch/$SLURM_JOB_ID ? /tmp` so cells2stats' temporary files land on fast local SSD instead of GPFS.
+- Adds `/lscratch/$SLURM_JOB_ID â†’ /tmp` so cells2stats' temporary files land on fast local SSD instead of GPFS.
 - Sets `TMPDIR=/tmp` inside the container.
-- Pins all BLAS/OMP thread counts to 1 (see [Troubleshooting ? RLIMIT_NPROC](#runtimeerror-cant-start-new-thread--rlimit_nproc-explosion)).
+- Pins all BLAS/OMP thread counts to 1 (see [Troubleshooting â†’ RLIMIT_NPROC](#runtimeerror-cant-start-new-thread--rlimit_nproc-explosion)).
+- Constrains the per-worker JVM (heap, GC threads, stack) that CellProfiler spawns for Bioformats, to prevent the JVM-side equivalent of the BLAS thread explosion (see [Troubleshooting â†’ JVM crash dumps](#jvm-crash-dumps-hs_err_pidlog)).
 - Passes `--num-threads $SLURM_CPUS_PER_TASK` so cells2stats matches the SLURM allocation.
 - Passes `--output $OUT_DIR` from the second positional argument.
 - **Rejects** `--output`/`-o`/`--num-threads`/`-j` if passed as extra args (the wrapper manages them; double-setting confuses cells2stats).
@@ -179,11 +180,11 @@ jobhist <JOBID>
 
 | Directive             | Default        | When to change                                                                       |
 | --------------------- | -------------- | ------------------------------------------------------------------------------------ |
-| `--partition`         | `norm`         | `quick` for =4 h tests; `largemem` if you hit OOM on `norm` (max 247 GB).             |
-| `--cpus-per-task`     | 32             | Lower (8–16) for small runs or visualization-only; higher hits diminishing returns. |
+| `--partition`         | `norm`         | `quick` for â‰¤4 h tests; `largemem` if you hit OOM on `norm` (max 247 GB).             |
+| `--cpus-per-task`     | 32             | Lower (8â€“16) for small runs or visualization-only; higher hits diminishing returns. |
 | `--mem`               | 128g           | Bump to 247g for large CellProfiler runs with many cells per FOV.                    |
-| `--gres=lscratch:100` | 100 GB         | Increase to 200–400 GB for runs with many cycles or large image sets.                |
-| `--time`              | 4:00:00        | Full runs with CellProfiler + viz often take 6–12 h; raise to `12:00:00` or more.    |
+| `--gres=lscratch:100` | 100 GB         | Increase to 200â€“400 GB for runs with many cycles or large image sets.                |
+| `--time`              | 4:00:00        | Full runs with CellProfiler + viz often take 6â€“12 h; raise to `12:00:00` or more.    |
 
 ### cells2stats arguments (most-used subset)
 
@@ -191,8 +192,8 @@ The full, authoritative reference is at **<https://docs.elembio.io/docs/cells2st
 
 | Flag (short)                       | Effect                                                                                     |
 | ---------------------------------- | ------------------------------------------------------------------------------------------ |
-| `--output DIR` (`-o`)              | Output directory. **Set by the wrapper — don't pass it again.** Default would otherwise be `INPUT_DIR/CYTOPROFILING/<TIMESTAMP>`. |
-| `--num-threads N` (`-j`)           | Parallel workers. **Set by the wrapper from `$SLURM_CPUS_PER_TASK`** — don't pass it again. |
+| `--output DIR` (`-o`)              | Output directory. **Set by the wrapper â€” don't pass it again.** Default would otherwise be `INPUT_DIR/CYTOPROFILING/<TIMESTAMP>`. |
+| `--num-threads N` (`-j`)           | Parallel workers. **Set by the wrapper from `$SLURM_CPUS_PER_TASK`** â€” don't pass it again. |
 | `--visualization` (`-V`)           | Generate CytoCanvas input files alongside stats. Adds significant runtime; required if using alternative segmentation masks via `--segmentation` and wanting full regeneration. |
 | `--visualization-only` (`-O`)      | CytoCanvas inputs only; skips stats and CellProfiler. Use to prep an existing run output for visualization. |
 | `--skip-cellprofiler` (`-s`)       | Run without CellProfiler. Morphology features will not appear in `RawCellStats.csv`/`.parquet`. |
@@ -201,10 +202,10 @@ The full, authoritative reference is at **<https://docs.elembio.io/docs/cells2st
 | `--run-manifest FILE.csv` (`-r`)   | Use a corrected run manifest instead of the one on the instrument output. See Element's [Run Manifest docs](https://docs.elembio.io/docs/run-manifest/#corrected-run-manifest). |
 | `--panel FILE.json` (`-p`)         | Use an alternate `panel.json` instead of the instrument-emitted one.                        |
 | `--segmentation DIR` (`-S`)        | Directory of alternative cell segmentation masks. See Element's [resegmentation tutorial](https://docs.elembio.io/docs/tutorials/cytoprofiling/resegmentation/). |
-| `--batch B1,B2,...` (`-b`)         | Restrict analysis to specific batches. Valid: `B1`–`B8`.                                    |
-| `--well A1,B2,...` (`-w`)          | Restrict to specific wells. 12-well: `A1`–`F2`; 48-well: `A1`–`L4`.                          |
+| `--batch B1,B2,...` (`-b`)         | Restrict analysis to specific batches. Valid: `B1`â€“`B8`.                                    |
+| `--well A1,B2,...` (`-w`)          | Restrict to specific wells. 12-well: `A1`â€“`F2`; 48-well: `A1`â€“`L4`.                          |
 | `--tile 'REGEX'` (`-t`)            | Restrict to tiles matching a regex (e.g. `'L1R..C..S.'` for all of Lane 1). Repeatable.    |
-| `--max-unassigned N` (`-u`)        | Max number of unassigned sequences reported (1–10000, default 30).                          |
+| `--max-unassigned N` (`-u`)        | Max number of unassigned sequences reported (1â€“10000, default 30).                          |
 | `--log-level LEVEL` (`-l`)         | `INFO` (default), `DEBUG`, `WARNING`, `ERROR`. Use `DEBUG` when filing bug reports.         |
 | `--error-on-missing` (`-m`)        | Fail on missing input files instead of skipping them.                                       |
 | `--no-error-on-invalid` (`-n`)     | Skip invalid files and continue (the default is also to skip; this is the explicit form).   |
@@ -212,7 +213,7 @@ The full, authoritative reference is at **<https://docs.elembio.io/docs/cells2st
 
 > **Don't pass these from the command line on Biowulf**, because the container provides them and the wrapper would conflict: `--bases2fastq`, `--bowtie`, `--bowtie-build`, `--cellprofiler`, `--samtools`, `--python`. These flags exist for non-containerized installs that need to point at host binaries.
 
-The `--input-remote` / `--output-remote` rclone flags also aren't relevant on Biowulf — keep data on `/data` (= `/vf/users`) and let the bindpath handle it.
+The `--input-remote` / `--output-remote` rclone flags also aren't relevant on Biowulf â€” keep data on `/data` (= `/vf/users`) and let the bindpath handle it.
 
 Run `singularity exec $CONTAINER cells2stats --help` for the live, version-specific argument list.
 
@@ -234,17 +235,17 @@ The wrapper calls `readlink -f` before validating. If the path is on `/vf/users/
 
 ### Job dies immediately with `singularity: command not found`
 
-The wrapper runs `module load singularity` (unversioned, per Biowulf policy). If `module` itself isn't found, your shell environment is wiping `MODULEPATH` — submit from a clean login shell.
+The wrapper runs `module load singularity` (unversioned, per Biowulf policy). If `module` itself isn't found, your shell environment is wiping `MODULEPATH` â€” submit from a clean login shell.
 
 If the Singularity default has just been bumped on Biowulf and the SIF misbehaves with the new version (rare but possible), rebuild the SIF against the current default to confirm compatibility before debugging further.
 
 ### `ERROR: do not pass '--output' as an extra argument`
 
-You passed `--output`/`-o` or `--num-threads`/`-j` in the extra-args position. The wrapper manages these — drop them from your `sbatch` command line.
+You passed `--output`/`-o` or `--num-threads`/`-j` in the extra-args position. The wrapper manages these â€” drop them from your `sbatch` command line.
 
 ### `RuntimeError: can't start new thread` / RLIMIT_NPROC explosion
 
-cells2stats spawns one Python worker per `--num-threads`. Without thread-pinning, each worker's numpy spawns another N BLAS threads, giving N² total — at 32 CPUs that's 1024 threads, exactly the per-user `RLIMIT_NPROC` ceiling on Biowulf compute nodes. The wrapper pins these to 1:
+cells2stats spawns one Python worker per `--num-threads`. Without thread-pinning, each worker's numpy spawns another N BLAS threads, giving NÂ² total â€” at 32 CPUs that's 1024 threads, exactly the per-user `RLIMIT_NPROC` ceiling on Biowulf compute nodes. The wrapper pins these to 1:
 
 ```
 SINGULARITYENV_OPENBLAS_NUM_THREADS=1
@@ -260,7 +261,7 @@ If you copy the wrapper and remove these, expect this error around the time the 
 
 cells2stats writes a lot of intermediate data to `$TMPDIR`. The wrapper binds `/lscratch/$JOBID` (sized by `--gres=lscratch:N`) to `/tmp`. If you see `No space left on device`, increase `--gres=lscratch:` (allowed up to 800 GB on most `norm` nodes; check `freen`).
 
-### Out of memory (OOM) — job killed by SLURM
+### Out of memory (OOM) â€” job killed by SLURM
 
 Symptom in `scripts/logs/c2s_<JOBID>.err`:
 
@@ -271,12 +272,12 @@ slurmstepd: error: Detected 1 oom-kill event(s)
 Options, in order of preference:
 
 1. Raise `--mem` (up to 247g on `norm`).
-2. Lower `--cpus-per-task` — fewer parallel workers = less peak memory.
+2. Lower `--cpus-per-task` â€” fewer parallel workers = less peak memory.
 3. Switch to `--partition=largemem` and request more.
 
 Re-running with `--tile`, `--well`, or `--batch` on a smaller subset is also a useful way to bisect whether a specific region is responsible.
 
-### GPFS / bindpath issues — "No such file or directory" inside container
+### GPFS / bindpath issues â€” "No such file or directory" inside container
 
 Symptom: `cells2stats` reports the run dir doesn't exist, but it clearly does on the host. The wrapper sources `/usr/local/current/singularity/app_conf/sing_binds` to handle this; if you've overridden `SINGULARITY_BINDPATH` in your shell, your override wins and may drop required mounts. Unset it before submitting:
 
@@ -288,21 +289,47 @@ unset SINGULARITY_BINDPATH
 
 If `--skip-cellprofiler` works but a full run fails inside CellProfiler, you may have built against an updated upstream image with a broken venv. Rerun `singularity exec $SIF /opt/cellprofiler/bin/python3 -c "import cellprofiler"` against the SIF. If it fails, rebuild from the def file (the `%test` block would have caught it at build time, so this implies your SIF is stale or partial).
 
-### `hs_err_pid*.log` files appearing in `scripts/`
+### JVM crash dumps (`hs_err_pid*.log`)
 
-These are JVM crash dumps from CellProfiler's Java/Bioformats bridge — CellProfiler shells out to a JVM to read image formats, and when that JVM dies it drops `hs_err_pid<PID>.log` in the current working directory (which on a compute node is `scripts/`).
+CellProfiler shells out to a JVM (via Bioformats) to read image formats. When that JVM dies it drops `hs_err_pid<PID>.log` in the current working directory â€” for jobs submitted via this wrapper that's `scripts/`.
 
-Most common causes, in order:
+**The most likely cause is *not* a Java OOM**, despite what the dump's "Out of Memory Error" header suggests. Open the file and look at the stack near the top:
 
-1. **JVM out of memory** — Bioformats opens large image planes into the JVM heap. The fix is more `--mem` on the SLURM side, not Java tuning (the bundled CellProfiler sets its own heap based on available memory).
-2. **Concurrent JVM startup contention** at very high thread counts — when `--num-threads` is large, many workers spin up JVMs simultaneously and occasionally one fails to initialize. Lowering `--cpus-per-task` to 16 usually clears this.
-3. **Corrupt or truncated image data** in the run directory — a single bad TIFF can crash the reader. Check the JVM dump for the file path; it's usually mentioned near the top.
+```
+V  [libjvm.so+...]  AbstractWorkGang::add_workers(...)
+V  [libjvm.so+...]  G1ConcurrentMark::G1ConcurrentMark(...)
+V  [libjvm.so+...]  G1CollectedHeap::initialize()
+```
 
-The dump files themselves are harmless artifacts; safe to delete after diagnosis. To stop them cluttering the repo, you can add `scripts/hs_err_pid*.log` to `.gitignore`.
+A crash during `G1CollectedHeap::initialize` / `AbstractWorkGang::add_workers`, with elapsed time under a second, is the JVM dying while trying to spawn its garbage-collector worker threads â€” **not** while running out of heap. The system has plenty of RAM; what's been exhausted is the per-user thread/process limit (`RLIMIT_NPROC=1024` on Biowulf).
+
+**Why it happens:** the JVM auto-sizes its GC thread pool from the *host* CPU count (192 on the AMD EPYC 9454 nodes), not from `$SLURM_CPUS_PER_TASK`. With 32 cells2stats workers each forking a JVM that wants ~30 native threads on init, you can easily blow past 1024.
+
+**Fix (already in this wrapper):** the wrapper sets
+
+```
+SINGULARITYENV_JAVA_TOOL_OPTIONS="-Xmx4g -Xms512m -XX:ParallelGCThreads=2 -XX:ConcGCThreads=1 -XX:CICompilerCount=2 -Xss512k"
+```
+
+This caps the per-JVM heap to 4 GB, pins the GC and JIT thread pools to small fixed values, and shrinks per-thread stack reservation. To confirm the flags are reaching the JVM, look near the start of `c2s_<JOBID>.out` for:
+
+```
+Picked up JAVA_TOOL_OPTIONS: -Xmx4g -Xms512m -XX:ParallelGCThreads=2 ...
+```
+
+If that line is missing, the env var isn't crossing the Singularity boundary â€” verify the `SINGULARITYENV_` prefix is intact.
+
+**Other things that produce hs_err_pid files (less common):**
+
+1. **Actual Java heap OOM.** Stack will say `java.lang.OutOfMemoryError: Java heap space` (not `Cannot create worker GC thread`). Fix: raise `-Xmx` in the wrapper's `JAVA_TOOL_OPTIONS` from `4g` to `8g`.
+2. **Corrupt or truncated image data.** Look for a file path near the top of the dump. A single bad TIFF can crash the Bioformats reader.
+3. **Genuine SLURM-side OOM.** Whole job killed by `slurmstepd` (see [OOM section](#out-of-memory-oom--job-killed-by-slurm)). The hs_err files are a side effect, not the cause.
+
+The dump files themselves are harmless artifacts; safe to delete after diagnosis. To stop them cluttering the repo, add `scripts/hs_err_pid*.log` and `scripts/core.*` to `.gitignore`.
 
 ### Build fails at `%test`
 
-A test command exited non-zero. Read the build log carefully — it's almost always either (a) a Python import that the upstream image dropped, or (b) `apt-get` failing because the package list expired (`%post` rebuilds it; re-run the build).
+A test command exited non-zero. Read the build log carefully â€” it's almost always either (a) a Python import that the upstream image dropped, or (b) `apt-get` failing because the package list expired (`%post` rebuilds it; re-run the build).
 
 ### Slow visualization output
 
@@ -322,4 +349,4 @@ When opening a support thread or filing a bug, rerun the failing job with `--log
 
 ## Contact
 
-HiTIF — Gianluca Pegoraro. Open an issue in this repo for bugs or improvement requests.
+HiTIF â€” Gianluca Pegoraro. Open an issue in this repo for bugs or improvement requests.
