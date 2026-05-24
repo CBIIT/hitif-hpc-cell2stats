@@ -12,6 +12,12 @@
 # =============================================================================
 # cells2stats wrapper for Biowulf
 #
+# IMPORTANT: Submit from the repo directory so the relative `logs/` path
+# in --output/--error resolves correctly. Create it before first submission:
+#   mkdir -p logs
+# (The SLURM controller opens the log files BEFORE this script runs, so
+# `mkdir -p logs` here would be too late.)
+#
 # Usage:
 #   sbatch run_cells2stats.sh RUN_DIR OUT_DIR [extra cells2stats args...]
 #
@@ -51,13 +57,28 @@ OUT_DIR="$(readlink -f "$OUT_DIR")"
 
 [[ -d "$RUN_DIR" ]] || { echo "RUN_DIR not found: $RUN_DIR" >&2; exit 1; }
 mkdir -p "$OUT_DIR"
-mkdir -p logs
+
+# Guard against duplicating wrapper-managed flags. The wrapper sets --output
+# and --num-threads; passing them again confuses cells2stats.
+for arg in "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"; do
+    case "$arg" in
+        --output|-o|--num-threads|-j)
+            echo "ERROR: do not pass '$arg' as an extra argument." >&2
+            echo "       The wrapper sets it from SLURM allocation / OUT_DIR." >&2
+            exit 2
+            ;;
+    esac
+done
 
 # ---- Container location ----------------------------------------------------
 CONTAINER="/data/$USER/containers/cells2stats/cells2stats-full.sif"
 [[ -f "$CONTAINER" ]] || { echo "Container not found: $CONTAINER" >&2; exit 1; }
 
 # ---- Environment -----------------------------------------------------------
+# Biowulf policy: load `singularity` unversioned so users get the
+# staff-maintained default. Do NOT pin a version here — the Biowulf docs
+# explicitly disallow it (pinned versions are retired without notice and
+# break jobs at submission time).
 module load singularity
 
 # Biowulf staff-maintained bindpath setup (handles GPFS symlinks, /data, /fdb, etc.)
@@ -81,27 +102,47 @@ export SINGULARITYENV_OMP_NUM_THREADS=1
 export SINGULARITYENV_NUMEXPR_NUM_THREADS=1
 export SINGULARITYENV_BLIS_NUM_THREADS=1
 
-# ---- Run -------------------------------------------------------------------
+# ---- Banner ----------------------------------------------------------------
+# Memory may be reported as MEM_PER_NODE or MEM_PER_CPU depending on how
+# the job was submitted; fall back gracefully.
+MEM_REPORT="${SLURM_MEM_PER_NODE:-${SLURM_MEM_PER_CPU:-unknown} (per-CPU)}"
+SINGULARITY_VERSION="$(singularity --version 2>/dev/null || echo 'unknown')"
+
 echo "============================================================"
-echo "Job ID:      $SLURM_JOB_ID"
-echo "Node:        $SLURMD_NODENAME"
-echo "CPUs:        $SLURM_CPUS_PER_TASK"
-echo "Mem:         ${SLURM_MEM_PER_NODE} MB"
-echo "lscratch:    /lscratch/$SLURM_JOB_ID"
-echo "Container:   $CONTAINER"
-echo "Run dir:     $RUN_DIR"
-echo "Output dir:  $OUT_DIR"
-echo "Extra args:  ${EXTRA_ARGS[*]:-(none)}"
-echo "Start:       $(date)"
+echo "Job ID:        $SLURM_JOB_ID"
+echo "Node:          $SLURMD_NODENAME"
+echo "CPUs:          $SLURM_CPUS_PER_TASK"
+echo "Mem:           ${MEM_REPORT} MB"
+echo "lscratch:      /lscratch/$SLURM_JOB_ID"
+echo "Singularity:   $SINGULARITY_VERSION"
+echo "Container:     $CONTAINER"
+echo "Run dir:       $RUN_DIR"
+echo "Output dir:    $OUT_DIR"
+# Use [@] (not [*]) and quote each element so display matches actual invocation.
+if [[ ${#EXTRA_ARGS[@]} -eq 0 ]]; then
+    echo "Extra args:    (none)"
+else
+    printf 'Extra args:    '
+    printf '%q ' "${EXTRA_ARGS[@]}"
+    printf '\n'
+fi
+echo "Start:         $(date)"
 echo "============================================================"
 
+# ---- Run -------------------------------------------------------------------
+# Disable errexit around the singularity call so we can capture the exit
+# code AND still print the end-of-run banner. `set -euo pipefail` at the
+# top would otherwise terminate the script on a non-zero return before
+# EXIT_CODE=$? ever runs.
+set +e
 singularity exec "$CONTAINER" cells2stats \
     --num-threads "$SLURM_CPUS_PER_TASK" \
     --output "$OUT_DIR" \
-    "${EXTRA_ARGS[@]}" \
+    "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}" \
     "$RUN_DIR"
-
 EXIT_CODE=$?
+set -e
+
 echo "============================================================"
 echo "End:         $(date)"
 echo "Exit code:   $EXIT_CODE"
