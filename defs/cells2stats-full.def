@@ -1,0 +1,22 @@
+Bootstrap: docker
+From: elembio/cells2stats:latest
+
+%post
+    set -e
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y --no-install-recommends bowtie
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+%test
+    set -e
+    cells2stats --version
+    bases2fastq --version | head -1
+    bowtie --version | head -1
+    bowtie-build --version | head -1
+    samtools --version | head -1
+    multiqc --version
+    /usr/bin/python3 --version
+    /usr/bin/python3 -c "import zarr, tifffile, numpy, cv2, pandas, ome_zarr, skimage, geopandas, pyarrow, scipy; print('viz deps OK')"
+    /opt/cellprofiler/bin/python3 -c "import cellprofiler; print('cellprofiler', cellprofiler.__version__)"
