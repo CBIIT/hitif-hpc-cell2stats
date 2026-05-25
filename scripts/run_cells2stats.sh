@@ -102,6 +102,20 @@ export SINGULARITYENV_OMP_NUM_THREADS=1
 export SINGULARITYENV_NUMEXPR_NUM_THREADS=1
 export SINGULARITYENV_BLIS_NUM_THREADS=1
 
+# Cap OpenCV's parallel backend. cv2 does NOT honor OMP_NUM_THREADS unless
+# built with OpenMP, and queries the host CPU count (192 on Biowulf EPYC
+# 9454 nodes) by default. The visualization preprocessing script forks ~32
+# Python workers and each one's cv2.parallel_for_ tries to spin up that
+# many threads, producing hundreds of:
+#   [ERROR] parallel_impl.cpp:244 WorkerThread N: Can't spawn new thread: res = 11
+# and silent per-tile failures in cell-border calculation. The job still
+# exits 0 but visualization output is incomplete.
+export SINGULARITYENV_OPENCV_FOR_THREADS_NUM=1
+
+# Cap ITK's global thread pool too, for the same reason — used by some
+# skimage / OME-Zarr code paths.
+export SINGULARITYENV_ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS=1
+
 # Constrain JVM thread pools and heap for CellProfiler's per-worker JVMs.
 # CellProfiler spawns one JVM per worker via Bioformats. Each JVM auto-sizes
 # its GC thread pool from the host CPU count (e.g. 192 on Biowulf AMD EPYC

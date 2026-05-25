@@ -151,7 +151,7 @@ The wrapper resolves both paths with `readlink -f`, validates `RUN_DIR` exists, 
 - Sources `/usr/local/current/singularity/app_conf/sing_binds` so GPFS-backed paths (`/data`, `/vf`, `/fdb`, etc.) are visible inside the container via Biowulf staff-maintained bindpaths.
 - Adds `/lscratch/$SLURM_JOB_ID → /tmp` so cells2stats' temporary files land on fast local SSD instead of GPFS.
 - Sets `TMPDIR=/tmp` inside the container.
-- Pins all BLAS/OMP thread counts to 1 (see [Troubleshooting → RLIMIT_NPROC](#runtimeerror-cant-start-new-thread--rlimit_nproc-explosion)).
+- Pins all BLAS/OMP thread counts to 1, and caps OpenCV and ITK thread pools the same way (see [Troubleshooting → RLIMIT_NPROC](#runtimeerror-cant-start-new-thread--rlimit_nproc-explosion) and [Troubleshooting → OpenCV thread spawn errors during visualization](#opencv-cant-spawn-new-thread-errors-during-visualization)).
 - Constrains the per-worker JVM (heap, GC threads, stack) that CellProfiler spawns for Bioformats, to prevent the JVM-side equivalent of the BLAS thread explosion (see [Troubleshooting → JVM crash dumps](#jvm-crash-dumps-hs_err_pidlog)).
 - Passes `--num-threads $SLURM_CPUS_PER_TASK` so cells2stats matches the SLURM allocation.
 - Passes `--output $OUT_DIR` from the second positional argument.
@@ -256,6 +256,43 @@ SINGULARITYENV_BLIS_NUM_THREADS=1
 ```
 
 If you copy the wrapper and remove these, expect this error around the time the first worker pool ramps up. Don't.
+
+### OpenCV `Can't spawn new thread` errors during visualization
+
+Symptom in `scripts/logs/c2s_<JOBID>.out` — many lines like:
+
+```
+[ERROR:0@119.582] global parallel_impl.cpp:244 WorkerThread 19: Can't spawn new thread: res = 11
+[ERROR:0@119.616] global parallel_impl.cpp:244 WorkerThread 20: Can't spawn new thread: res = 11
+...
+Failed to handle cell border calculation for .../WellB1/L2R06C01S1_Cell.tif with error can't start new thread
+Failed to handle cell border calculation for .../WellB1/L2R06C02S1_Cell.tif with error can't start new thread
+...
+```
+
+**The job exits 0 but the output is incomplete.** The visualization preprocessing script catches the per-tile failure, skips that tile, and moves on. Affected tiles will be missing or have empty cell-border data in the CytoCanvas visualization output. Easy to miss if you only check the exit code.
+
+This is the same root cause as the [RLIMIT_NPROC explosion above](#runtimeerror-cant-start-new-thread--rlimit_nproc-explosion) — `res = 11` is errno `EAGAIN` from `pthread_create`, which on Linux almost always means the per-user thread/process ceiling has been hit. But it's a **different culprit:**
+
+- The BLAS pinning above covers numpy/scipy worker threads.
+- The JVM `JAVA_TOOL_OPTIONS` below covers CellProfiler's Bioformats JVMs.
+- **OpenCV** (`cv2`), used by the visualization preprocessing script for per-tile image processing, does NOT honor `OMP_NUM_THREADS` unless it was built with OpenMP — which the upstream cells2stats image is not. cv2 queries the host CPU count directly (192 on Biowulf EPYC 9454 nodes) and tries to spin up that many threads in each `cv2.parallel_for_` region. With 32 viz-preprocessing workers each doing this, you blow past `RLIMIT_NPROC=1024` even with all the other pins in place.
+
+**Fix (already in this wrapper):** the wrapper sets
+
+```
+SINGULARITYENV_OPENCV_FOR_THREADS_NUM=1
+SINGULARITYENV_ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS=1
+```
+
+After applying these, verify the next run with:
+
+```bash
+grep -c "Can't spawn new thread" scripts/logs/c2s_<JOBID>.out          # should be 0
+grep -c "Failed to handle cell border" scripts/logs/c2s_<JOBID>.out    # should be 0
+```
+
+If you submitted a run before this fix was in place, the resulting output is salvageable: rerun the same job with `--visualization-only` (the wrapper's default behavior for that mode will re-emit the missing tiles into the same output directory).
 
 ### Out of disk space mid-run
 
