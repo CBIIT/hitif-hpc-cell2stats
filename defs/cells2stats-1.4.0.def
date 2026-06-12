@@ -1,0 +1,97 @@
+Bootstrap: docker
+From: elembio/cells2stats:1.4.0-beta
+
+# cells2stats 1.4.0 container for Biowulf.
+#
+# Changes vs the 1.3.1 def:
+#   - Base image pinned to elembio/cells2stats:1.4.0-beta (was :latest) for
+#     reproducibility. NOTE the "-beta" suffix is part of the published tag;
+#     `elembio/cells2stats:1.4.0` does NOT exist (MANIFEST_UNKNOWN). Verify
+#     the exact tag string against DockerHub before building:
+#       curl -s "https://hub.docker.com/v2/repositories/elembio/cells2stats/tags?page_size=100" | grep -o '"name":"[^"]*"'
+#   - %test asserts the cells2stats major.minor (1.4) and probes for the
+#     new SpatialData dependency that 1.4.x adds for visualization
+#     generation (viz is now default-on; the old --visualization /
+#     --visualization-only opt-in flags were removed upstream).
+#
+# Build target name (kept alongside the 1.3.1 SIF, not overwriting it):
+#   cells2stats-full-1.4.0.sif
+
+%post
+    set -e
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y --no-install-recommends bowtie
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+%test
+    set -e
+
+    # --- Core binaries -------------------------------------------------------
+    # Print the version (visible in the build log) AND hard-assert the
+    # major.minor. The pinned tag already guarantees the version; this is a
+    # belt-and-suspenders guard that aborts the build if the upstream tag
+    # ever silently moves off the 1.4 line. Broad regex tolerates whatever
+    # prefix/format Element prints ("1.4.0", "v1.4.0", "version 1.4.0", ...).
+    cells2stats --version
+    cells2stats --version 2>&1 | grep -Eq '1\.4(\.|[^0-9]|$)' \
+        || { echo "ERROR: cells2stats is not on the 1.4 line"; exit 1; }
+
+    bases2fastq --version | head -1
+    bowtie --version | head -1
+    bowtie-build --version | head -1
+    samtools --version | head -1
+
+    # MultiQC was bumped to 1.35 in the 1.4 line. Print it; don't hard-assert
+    # the exact patch (kept lenient so a 1.35.x patch bump doesn't fail the
+    # build). If you want this strict, add a `| grep -q 1\.35` guard.
+    multiqc --version
+
+    # --- Python interpreters -------------------------------------------------
+    # Three interpreters coexist in the 1.4 image (verified by inspection):
+    #   /usr/bin/python3              -> 3.10, bare (the default `python3`)
+    #   /usr/bin/python3.11          -> hosts the viz + SpatialData stack,
+    #                                   installed at
+    #                                   /usr/local/lib/python3.11/dist-packages
+    #   /opt/cellprofiler/bin/python3 -> 3.8, CellProfiler venv
+    # IMPORTANT: unlike 1.3.1, the viz stack is NOT in /usr/bin/python3. The
+    # 1.4 line gained SpatialData generation and relocated the whole viz stack
+    # to python3.11. Test against that interpreter.
+    /usr/bin/python3 --version
+    /usr/bin/python3.11 --version
+
+    # Viz + SpatialData stack (1.4: python3.11). Each import is tested
+    # individually so a failure names the missing module instead of aborting
+    # on the first bad import. spatialdata is new in the 1.4 line.
+    #
+    # spatialdata pulls in datashader, which uses Numba @njit(cache=True).
+    # Numba's default cache lives next to the source file in dist-packages,
+    # which is READ-ONLY in a SIF; at import time that throws
+    #   "no locator available for file ... datashader ...".
+    # Point Numba at a writable cache dir. This mirrors the runtime condition:
+    # the wrapper MUST set SINGULARITYENV_NUMBA_CACHE_DIR for the same reason
+    # (see run_cells2stats_1.4.0.sh), or viz/SpatialData generation fails the
+    # same way at runtime.
+    export NUMBA_CACHE_DIR="${TMPDIR:-/tmp}/numba_cache"
+    mkdir -p "$NUMBA_CACHE_DIR"
+    /usr/bin/python3.11 - <<'PYEOF'
+import importlib, sys
+mods = ["zarr", "tifffile", "numpy", "cv2", "pandas", "ome_zarr",
+        "skimage", "geopandas", "pyarrow", "scipy", "spatialdata"]
+missing = []
+for m in mods:
+    try:
+        importlib.import_module(m)
+        print("  OK  ", m)
+    except Exception as e:
+        print("  FAIL", m, "->", repr(e))
+        missing.append(m)
+if missing:
+    print("MISSING viz modules:", ", ".join(missing))
+    sys.exit(1)
+print("viz + spatialdata deps OK (python3.11)")
+PYEOF
+
+    # CellProfiler (3.8 venv, separate interpreter — do not mix with the above).
+    /opt/cellprofiler/bin/python3 -c "import cellprofiler; print('cellprofiler', cellprofiler.__version__)"
